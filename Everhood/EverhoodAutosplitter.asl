@@ -95,8 +95,8 @@ startup
 			{ "Extras", "033-055-post", true, "Defeat the Lightning Man." },
 			{ "Extras", "072-058-post", true, "Defeat Brown Slim Mushroom." },
 			{ "Extras", "116-115-post", true, "Defeat Jump Rope." },
-			{ "Extras", "013-111-pre",  true, "Defeat Cat God." }, // fuck
-			{ "Extras", "013-112-post", true, "Defeat Cat God." }, // why
+			{ "Extras", "013-111-post", true, "Kill Cat God." },
+			{ "Extras", "013-112-post", true, "Survive Cat God." },
 			{ "Extras", "032-026-post", true, "Complete Super Racket 2." },
 			{ "Extras", "114-045-post", true, "Defeat Dev Gnomes." }
 	};
