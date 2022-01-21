@@ -1,343 +1,452 @@
-/*
-* Everhood Autosplitter (by DeamonHunter)
-*
-* Special Thanks:
-*  - Ero#1111 for making a script to find Unity's Scenemanager (Post: https://discord.com/channels/144133978759233536/144135003209596928/886305027466096700)
-*  - Micrologist#2351 for documenting the offset to a scenes buildIndex (Post: https://discord.com/channels/144133978759233536/144134231201808385/845533849727533067)
-*
-* If someone wants to, here is a list of things that could be improved:
-* - Starting on the difficulty selection.
-* - Finishing without using a stopwatch. (This alone would remove a bunch of complexity.)
-* - Fix up Incinerator/Dr Orange splits (Both of these don't cause a scene change.)
-*/
+state("Everhood") {}
 
-state("Everhood") {
-	int sceneCount : "UnityPlayer.dll", 0x15AFD28, 0x18; //SceneManager.sceneCount
-	int buildIndex  : "UnityPlayer.dll", 0x15AFD28, 0x28, 0x0, 0x98; //SceneManager.scenes[0].buildIndex
-}
+startup
+{
+	vars.Log = (Action<object>)(output => print("[Everhood] " + output));
+	vars.OriginalOffset = timer.Run.Offset;
+	vars.CompletedSplits = new HashSet<string>();
+	vars.Items = new HashSet<string>();
 
-startup {
-	//Variables setup
-	vars.originalOffset = timer.Run.Offset;	//Make sure we don't accidentally destroy an offset
+	#region Settings
+	dynamic[,] sett =
+	{
+		{ null, "Pre-Arm", true, "Pre-Arm" },
+			{ "Pre-Arm", "Tutorial", true, "Tutorial Area" },
+				{ "Tutorial", "064-007-pre", true, "Defeat Frog Armless." },
+				{ "Tutorial", "065-009-pre", true, "Defeat ATM Armless." },
+				{ "Tutorial", "066-010-pre", true, "Defeat Zigg Armless." },
+				{ "Tutorial", "015-012-pre", true, "Defeat Incinerator 2." },
+				{ "Tutorial", "019-017-pre", true, "Complete Post Mortem." },
+				{ "Tutorial", "020-016-pre", true, "Complete Gnomes." },
 
-	// Splitting Checks
-	vars.haveArm = false;
-	vars.preArmChecks = new Dictionary<int, Tuple<string, int>>(); //Checks before Arm has been gotten.
-	vars.postArmChecks = new Dictionary<int, Tuple<string, int>>(); //Checks after Arm has been gotten.
-	vars.requireArmChecks = new Dictionary<int, Tuple<string, int>>(); //Checks that absolutely require the arm to have been gotten.
-	vars.creditChecks = new Dictionary<int, Tuple<string, int, int>>(); //Checks that are credits and thus need to wait until the scene has loaded properly
-	vars.preArmChecksDone = new HashSet<string>();
-	vars.postArmChecksDone = new HashSet<string>();
+			{ "Pre-Arm", "Circus+Forest", true, "Circus + Forest" },
+				{ "Circus+Forest", "094-039-pre",  true, "Finish Kart Race." },
+				{ "Circus+Forest", "067-085-pre",  true, "Defeat Green Mage Armless." },
+				{ "Circus+Forest", "058-063-pre", false, "Get dragged into the Lab." },
+				{ "Circus+Forest", "048-063-pre",  true, "Defeat Grundall Armless." },
+				{ "Circus+Forest", "073-063-pre", false, "Defeat Masterpiece." },
+				// Todo: Make it a check for defeating Orange. (Note: Defeating Orange has no level transition)
+				{ "Circus+Forest", "063-058-pre",  true, "Leave the Lab." },
 
-	// Credits delay
-	vars.waitingOnCredit = Tuple.Create((string)null, -1, -1);
+			{ "Pre-Arm", "DND", true, "DND" },
+				{ "DND", "046-104-pre", false, "Start DND." },
+				{ "DND", "096-101-pre",  true, "Defeat Goblin." },
+				{ "DND", "076-102-pre",  true, "Defeat Rasta." },
+				{ "DND", "098-102-pre",  true, "Defeat Dark Knight." },
+				{ "DND", "097-108-pre",  true, "Defeat Flan Mech." },
+				{ "DND", "099-109-pre",  true, "Defeat Red Wraith." },
+
+			{ "Pre-Arm", "Castle", true, "Castle" },
+				{ "Castle", "068-075-pre",  true, "Get through minecart Tunnel." },
+				{ "Castle", "071-077-pre",  true, "Defeat Flan and Muck Armless." },
+				{ "Castle", "078-077-pre", false, "Exit the Maze." },
+				{ "Castle", "080-062-pre",  true, "Exit the Castle." },
+
+			{ "Pre-Arm", "TheEnd", true, "The End?" },
+				{ "TheEnd", "091-057-pre", true, "Defeat Zob Armless." },
+				{ "TheEnd", "087-057-pre", true, "Defeat Rob Armless." },
+				{ "TheEnd", "074-057-pre", true, "Defeat Purple Mage Armless." },
+				{ "TheEnd", "027-083-pre", true, "Defeat Gold Pig Armless." },
+				{ "TheEnd", "021-056-pre", true, "Complete the Arm Tutorial." },
+
+		{ null, "Post-Arm", true, "Post-Arm" },
+			{ "Post-Arm", "Pacifist", true, "Pacifist Ending" },
+				{ "Pacifist", "058-062-post",    true, "Exit the Forest after getting Pacifist Trigger." },
+				{ "Pacifist", "113-120-post",   false, "Defeat the Angry Frog." },
+				{ "Pacifist", "PacifistCredits", true, "Get Pacifist Credits." },
+
+			{ "Post-Arm", "CircusNightClub", true, "(Genocide) Circus and Night Club" },
+				{ "CircusNightClub", "029-039-post", true, "Kill the name-changing Vampire." },
+				{ "CircusNightClub", "066-010-post", true, "Kill Zigg." },
+				{ "CircusNightClub", "028-007-post", true, "Get past the Heigher Beings." },
+
+			{ "Post-Arm", "MidnightTown", true, "(Genocide) Midnight Town" },
+				{ "MidnightTown", "054-041-post",  true, "Kill Rasta." },
+				{ "MidnightTown", "069-041-post",  true, "Kill the Trash Can." },
+				{ "MidnightTown", "022-055-post",  true, "Kill the Shopkeeper." },
+				{ "MidnightTown", "067-046-post", false, "Attempt to the Green Mage the first time." },
+				{ "MidnightTown", "035-046-post",  true, "Kill the Green Mage." },
+
+			{ "Post-Arm", "MushroomForest", true, "(Genocide) Mushroom Forest" },
+				{ "MushroomForest", "025-058-post", true, "Kill the Forest Spirit." },
+				{ "MushroomForest", "048-044-post", true, "Kill Grudall." },
+
+			{ "Post-Arm", "CastleArm", true, "(Genocide) Castle" },
+				{ "CastleArm", "061-060-post", true, "Kill Lost-A-Lot." },
+				{ "CastleArm", "068-075-post", true, "Kill the Cart Ghost." },
+				{ "CastleArm", "117-077-post", true, "Kill Zob and Rob." },
+				{ "CastleArm", "081-078-post", true, "Kill the Maze Monster." },
+				{ "CastleArm", "027-079-post", true, "Kill Gold Pig." },
+				{ "CastleArm", "052-077-post", true, "Kill Flan And Muck." },
+				{ "CastleArm", "031-077-post", true, "Kill your Cursor." },
+				{ "CastleArm", "074-082-post", true, "Kill Purple Mage.." },
+
+			{ "Post-Arm", "Genocide", true, "Genocide Ending" },
+				{ "Genocide", "014-034-post",    true, "Defeat Sun." },
+				{ "Genocide", "034-118-post",    true, "Defeat Lost Spirit's Revenge." },
+				{ "Genocide", "106-024-post",    true, "Defeat Universe." },
+				{ "Genocide", "093-008-post",   false, "Defeat Buddah." },
+				{ "Genocide", "GenocideCredits", true, "Get Genocide Credits." },
+
+		{ null, "Extras", true, "(All Fights) The Extra fights" },
+			{ "Extras", "065-009-post", true, "Kill ATM." },
+			{ "Extras", "040-039-post", true, "Complete the Maze and win a Cake." },
+			{ "Extras", "038-037-post", true, "Complete Super Racket." },
+			{ "Extras", "033-055-post", true, "Defeat the Lightning Man." },
+			{ "Extras", "072-058-post", true, "Defeat Brown Slim Mushroom." },
+			{ "Extras", "116-115-post", true, "Defeat Jump Rope." },
+			{ "Extras", "013-111-pre",  true, "Defeat Cat God." }, // fuck
+			{ "Extras", "013-112-post", true, "Defeat Cat God." }, // why
+			{ "Extras", "032-026-post", true, "Complete Super Racket 2." },
+			{ "Extras", "114-045-post", true, "Defeat Dev Gnomes." }
+	};
+
+	for (int i = 0; i < sett.GetLength(0); ++i)
+		settings.Add(sett[i, 1], sett[i, 2], sett[i, 3], sett[i, 0]);
+	#endregion
+
+	#region Credits Delays
 	vars.Stopwatch = new Stopwatch();
+	vars.CreditsDelay = new ExpandoObject();
+	vars.CreditsDelay.Reset = (Action)(() =>
+	{
+		vars.CreditsDelay.Name = default(string);
+		vars.CreditsDelay.Index = -1;
+		vars.CreditsDelay.Time = -1;
+		vars.Stopwatch.Reset();
+	});
+	vars.CreditsDelay.Reset();
+	#endregion
 
-	//Settings
-	settings.Add("Pre-Arm", true, "Pre-Arm");
-	settings.Add("Tutorial", true, "Tutorial Area", "Pre-Arm");
-	settings.Add("TutorialFrog", true, "Defeat Frog Armless.", "Tutorial");
-	settings.Add("ATMFight", true, "Defeat ATM Armless.", "Tutorial");
-	settings.Add("ZiggFight", true, "Defeat Zigg Armless.", "Tutorial");
-	settings.Add("Incinerator", true, "Defeat Incinerator 2.", "Tutorial");
-	settings.Add("PostMortem", true, "Complete Post Mortem.", "Tutorial");
-	settings.Add("Gnomes", true, "Complete Gnomes.", "Tutorial");
+	#region Split Checks
+	vars.HasArm = false;
+	vars.CreditsChecks = new Dictionary<int, dynamic[]>
+	{
+		{ 120, new dynamic[] { "PacifistCredits", 45, 0300 } },
+		{ 008, new dynamic[] { "GenocideCredits", 45, 3225 } },
+	};
+	#endregion
 
-	settings.Add("Circus+Forest", true, "Circus + Forest", "Pre-Arm");
-	settings.Add("KartRace", true, "Finish Kart Race.", "Circus+Forest");
-	settings.Add("GreenMage", true, "Defeat Green Mage Armless.", "Circus+Forest");
-	settings.Add("EnterLab", false, "Get dragged into the Lab.", "Circus+Forest");
-	settings.Add("Grundall", true, "Defeat Grundall Armless.", "Circus+Forest");
-	settings.Add("Masterpiece", false, "Defeat Masterpiece.", "Circus+Forest");
-	settings.Add("LeaveLab", true, "Leave the Lab.", "Circus+Forest"); //Todo: Make it a check for defeating Orange. (Note: Defeating Orange has no level transition)
-
-	settings.Add("DND", true, "DND", "Pre-Arm");
-	settings.Add("StartDND", false, "Start DND.", "DND");
-	settings.Add("Goblin", true, "Defeat Goblin.", "DND");
-	settings.Add("RastaDND", true, "Defeat Rasta.", "DND");
-	settings.Add("DarkKnight", true, "Defeat Dark Knight.", "DND");
-	settings.Add("RoboFlan", true, "Defeat Flan Mech.", "DND");
-	settings.Add("RedWraith", true, "Defeat Red Wraith.", "DND");
-
-	settings.Add("Castle", true, "Castle", "Pre-Arm");
-	settings.Add("Cart", true, "Get through minecart Tunnel.", "Castle");
-	settings.Add("FlanAndMuck", true, "Defeat Flan and Muck Armless.", "Castle");
-	settings.Add("ExitMaze", false, "Exit the Maze.", "Castle");
-	settings.Add("ExitCastle", true, "Exit the Castle.", "Castle");
-
-	settings.Add("TheEnd", true, "The End?", "Pre-Arm");
-	settings.Add("Zob", true, "Defeat Zob Armless.", "TheEnd");
-	settings.Add("Rob", true, "Defeat Rob Armless.", "TheEnd");
-	settings.Add("PurpleMage", true, "Defeat Purple Mage Armless.", "TheEnd");
-	settings.Add("GoldPig", true, "Defeat Gold Pig Armless.", "TheEnd");
-	settings.Add("Frog2", true, "Complete the Arm Tutorial.", "TheEnd");
-
-	settings.Add("Post-Arm", true, "Post-Arm");
-	settings.Add("Pacifist", true, "Pacifist Ending", "Post-Arm");
-	settings.Add("ExitForest", true, "Exit the Forest after getting Pacifist Trigger.", "Pacifist");
-	settings.Add("FrogWrath", false, "Defeat the Angry Frog.", "Pacifist");
-	settings.Add("PacifistCredits", true, "Get Pacifist Credits.", "Pacifist");
-
-	settings.Add("CircusNightClub", true, "(Genocide) Circus and Night Club", "Post-Arm");
-	settings.Add("VampireArm", true, "Kill the name-changing Vampire.", "CircusNightClub");
-	settings.Add("ZiggArm", true, "Kill Zigg.", "CircusNightClub");
-	settings.Add("HigherBeings", true, "Get past the Heigher Beings.", "CircusNightClub");
-
-	settings.Add("MidnightTown", true, "(Genocide) Midnight Town", "Post-Arm");
-	settings.Add("RastaArm", true, "Kill Rasta.", "MidnightTown");
-	settings.Add("TrashCanArm", true, "Kill the Trash Can.", "MidnightTown");
-	settings.Add("Shopkeeper", true, "Kill the Shopkeeper.", "MidnightTown");
-	settings.Add("GreenMage1Arm", false, "Attempt to the Green Mage the first time.", "MidnightTown");
-	settings.Add("GreenMage2Arm", true, "Kill the Green Mage.", "MidnightTown");
-
-	settings.Add("MushroomForest", true, "(Genocide) Mushroom Forest", "Post-Arm");
-	settings.Add("ForestSpirit", true, "Kill the Forest Spirit.", "MushroomForest");
-	settings.Add("GrundallArm", true, "Kill Grudall.", "MushroomForest");
-
-	settings.Add("CastleArm", true, "(Genocide) Castle", "Post-Arm");
-	settings.Add("LostALotArm", true, "Kill Lost-A-Lot.", "CastleArm");
-	settings.Add("CartArm", true, "Kill the Cart Ghost.", "CastleArm");
-	settings.Add("ZobAndRob", true, "Kill Zob and Rob.", "CastleArm");
-	settings.Add("MazeMonsterArm", true, "Kill the Maze Monster.", "CastleArm");
-	settings.Add("GoldPigArm", true, "Kill Gold Pig.", "CastleArm");
-	settings.Add("FlanAndMuckArm", true, "Kill Flan And Muck.", "CastleArm");
-	settings.Add("CursorArm", true, "Kill your Cursor.", "CastleArm");
-	settings.Add("PurpleMageArm", true, "Kill Purple Mage..", "CastleArm");
-
-	settings.Add("Genocide", true, "Genocide Ending", "Post-Arm");
-	settings.Add("Sun", true, "Defeat Sun.", "Genocide");
-	settings.Add("Cube", true, "Defeat Lost Spirit's Revenge.", "Genocide");
-	settings.Add("Cube2", true, "Defeat Universe.", "Genocide");
-	settings.Add("Buddah", false, "Defeat Buddah.", "Genocide");
-	settings.Add("GenocideCredits", true, "Get Genocide Credits.", "Genocide");
-
-	settings.Add("Extras", true, "(All Fights) The Extra fights");
-	settings.Add("ATMArm", true, "Kill ATM.", "Extras");
-	settings.Add("CakeRace", true, "Complete the Maze and win a Cake.", "Extras");
-	settings.Add("SuperRacket", true, "Complete Super Racket.", "Extras");
-	settings.Add("LightningMan", true, "Defeat the Lightning Man.", "Extras");
-	settings.Add("SlimMushroom", true, "Defeat Brown Slim Mushroom.", "Extras");
-	settings.Add("JumpRope", true, "Defeat Jump Rope.", "Extras");
-	settings.Add("CatGod", true, "Defeat Cat God.", "Extras");
-	settings.Add("SuperRacket2", true, "Complete Super Racket 2.", "Extras");
-	settings.Add("DevGnomes", true, "Defeat Dev Gnomes.", "Extras");
-
-
-	// Setting up triggers
-	var cBI = (Func<string, int, Tuple<string, int>>)(
-		(settingKey, levelToCheck) => {return Tuple.Create(settingKey, levelToCheck);
-		});
-
-	//Tutorial (Pre-Arm)
-	vars.preArmChecks.Add(64, cBI("TutorialFrog", 7));
-	vars.preArmChecks.Add(65, cBI("ATMFight", 9));
-	vars.preArmChecks.Add(66, cBI("ZiggFight", 10));
-
-	vars.preArmChecks.Add(19, cBI("PostMortem", 17));
-	vars.preArmChecks.Add(20, cBI("Gnomes", 16));
-	vars.preArmChecks.Add(15, cBI("Incinerator", 12));
-
-	//Circus + Forest (Pre-Arm)
-	vars.preArmChecks.Add(94, cBI("KartRace", 39));
-	vars.preArmChecks.Add(67, cBI("GreenMage", 85));
-	vars.preArmChecks.Add(58, cBI("EnterLab", 63));
-	vars.preArmChecks.Add(48, cBI("Grundall", 63));
-	vars.preArmChecks.Add(73, cBI("Masterpiece", 63));
-	vars.preArmChecks.Add(63, cBI("LeaveLab", 58));
-
-	//DND (Pre-Arm)
-	vars.preArmChecks.Add(46, cBI("StartDND", 104));
-	vars.preArmChecks.Add(96, cBI("Goblin", 101));
-	vars.preArmChecks.Add(76, cBI("RastaDND", 102));
-	vars.preArmChecks.Add(98, cBI("DarkKnight", 102));
-	vars.preArmChecks.Add(97, cBI("RoboFlan", 108));
-	vars.preArmChecks.Add(99, cBI("RedWraith", 109));
-
-	//Castle (Pre-Arm)
-	vars.preArmChecks.Add(68, cBI("Cart", 75));
-	vars.preArmChecks.Add(71, cBI("FlanAndMuck", 77));
-	vars.preArmChecks.Add(78, cBI("ExitMaze", 77));
-	vars.preArmChecks.Add(80, cBI("ExitCastle", 62));
-
-	//The End? (Pre-Arm)
-	vars.preArmChecks.Add(91, cBI("Zob", 57));
-	vars.preArmChecks.Add(87, cBI("Rob", 57));
-	vars.preArmChecks.Add(74, cBI("PurpleMage", 57));
-	vars.preArmChecks.Add(27, cBI("GoldPig", 83));
-	vars.preArmChecks.Add(21, cBI("Frog2", 56));
-
-	//Pacifist Ending
-    vars.requireArmChecks.Add(58, cBI("ExitForest", 62));
-	vars.postArmChecks.Add(113, cBI("FrogWrath", 120));
-	vars.creditChecks.Add(120, Tuple.Create("PacifistCredits", 45, 300));
-
-	//Circus And Night Club
-	vars.postArmChecks.Add(29, cBI("VampireArm", 39));
-	vars.postArmChecks.Add(66, cBI("ZiggArm", 10));
-	vars.postArmChecks.Add(65, cBI("ATMArm", 9));
-	vars.postArmChecks.Add(28, cBI("HigherBeings", 7));
-
-	//Midnight Town
-	vars.postArmChecks.Add(54, cBI("RastaArm", 41));
-	vars.postArmChecks.Add(69, cBI("TrashCanArm", 41));
-	vars.postArmChecks.Add(22, cBI("Shopkeeper", 55));
-	vars.postArmChecks.Add(67, cBI("GreenMage1Arm", 46));
-	vars.postArmChecks.Add(35, cBI("GreenMage2Arm", 46));
-
-	//Mushroom Forest
-	vars.postArmChecks.Add(25, cBI("ForestSpirit", 58));
-	vars.postArmChecks.Add(48, cBI("GrundallArm", 44));
-
-	//Castle
-	vars.postArmChecks.Add(61, cBI("LostALotArm", 60));
-	vars.postArmChecks.Add(68, cBI("CartArm", 75));
-	vars.postArmChecks.Add(117, cBI("ZobAndRob", 77));
-	vars.postArmChecks.Add(81, cBI("MazeMonsterArm", 78));
-	vars.postArmChecks.Add(27, cBI("GoldPigArm", 79));
-	vars.postArmChecks.Add(52, cBI("FlanAndMuckArm", 77));
-	vars.postArmChecks.Add(31, cBI("CursorArm", 77));
-	vars.postArmChecks.Add(74, cBI("PurpleMageArm", 82));
-
-	//Genocide Path
-	vars.postArmChecks.Add(14, cBI("Sun", 34));
-	vars.postArmChecks.Add(34, cBI("Cube", 118));
-	vars.postArmChecks.Add(106, cBI("Cube2", 24));
-	vars.postArmChecks.Add(93, cBI("Buddah", 8));
-	vars.creditChecks.Add(8, Tuple.Create("GenocideCredits", 45, 3225));
-
-	//Extras
-	vars.postArmChecks.Add(38, cBI("SuperRacket", 37));
-	vars.postArmChecks.Add(40, cBI("CakeRace", 39));
-	vars.postArmChecks.Add(33, cBI("LightningMan", 55));
-	vars.postArmChecks.Add(72, cBI("SlimMushroom", 58));
-	vars.postArmChecks.Add(116, cBI("JumpRope", 115));
-	vars.postArmChecks.Add(114, cBI("DevGnomes", 45));
-	vars.postArmChecks.Add(32, cBI("SuperRacket2", 26));
-
-	//Cat God has two individual ways to complete it. (You can kill it and get a cutscene, or you can fail and be dumped into the world.)
-	vars.preArmChecks.Add(13, cBI("CatGod", 111));
-	vars.postArmChecks.Add(13, cBI("CatGod", 112));
+	#region XML Parsing
+	var MONO_VER = "mono_v2_x64";
+	var xml = System.Xml.Linq.XDocument.Parse(File.ReadAllText(@"Components\" + MONO_VER + ".xml")).Element("mono");
+	vars.Script = xml.Element("script").Elements().ToDictionary(e => e.Name, e => e.Value);
+	vars.Engine = xml.Element("engine").Elements().ToDictionary(e => e.Name, e => e.Elements().ToDictionary(_e => _e.Name, _e => Convert.ToInt32(_e.Value, 16)));
+	#endregion
 }
 
-start {
-	vars.haveArm = false;
-	vars.waitingOnCredit = Tuple.Create((string)null, -1, -1);
-	vars.preArmChecksDone.Clear();
-	vars.postArmChecksDone.Clear();
-	vars.Stopwatch.Stop();
+init
+{
+	#region User Data
+	var mainImage = "Assembly-CSharp";
+	var classes = new Dictionary<string, int>
+	{
+		{ "EverhoodGameData", 0 },
+			{ "LocalData", 0 }
+	};
+	#endregion
 
-	if (old.buildIndex == 3 && current.buildIndex == 4) {
-		//Set an offset just as we start so that we can have the timer
-		//Also try to make sure we don't accidentally destroy an offset
-		var startOffset = TimeSpan.FromSeconds(10);
-		if (startOffset != timer.Run.Offset) {
-			vars.originalOffset = timer.Run.Offset;
-			timer.Run.Offset = startOffset;
-		}
-		return true;
-	}
-	return false;
-}
+	vars.TaskCompleted = false;
+	vars.CancelSource = new CancellationTokenSource();
+	System.Threading.Tasks.Task.Run(async () =>
+	{ task_start: try {
+		var ptrSize = game.Is64Bit() ? 0x8 : 0x4;
+		var image = IntPtr.Zero;
+		var mono = new Dictionary<string, dynamic>();
+		var sceneManager = IntPtr.Zero;
 
-split {
-	/*
-	* Credits need a bit of special work:
-	* 1. Needs the right transition to occur.
-	* 2. After transition occurs, it needs to wait until the scene is loaded.
-	* 3. After the scene is loaded, there is a bit more time before the credits visually show. (300ms for Pacifist and 3225ms for Genocide)
-	*/
+		#region Functions
+		Func<IntPtr, IntPtr> rp = ptr => game.ReadPointer(ptr);
+		Func<IntPtr, int> ri = ptr => game.ReadValue<int>(ptr);
+		Func<IntPtr, ushort> rus = ptr => game.ReadValue<ushort>(ptr);
+		Func<IntPtr, int, string> rs = (ptr, length) => game.ReadString(ptr, length, "");
 
-	if (vars.waitingOnCredit.Item1 != null) {
-		if (current.buildIndex == vars.waitingOnCredit.Item2) {
-			if (vars.Stopwatch.IsRunning) {
-				if (vars.Stopwatch.Elapsed.TotalMilliseconds >= vars.waitingOnCredit.Item3) {
-					vars.Stopwatch.Stop();
-					vars.waitingOnCredit = Tuple.Create((string)null, -1, -1);
-					vars.postArmChecksDone.Add(vars.waitingOnCredit.Item1);
-					return true;
-				}
-				return false;
-			}
+		Func<bool> getSceneManager = () =>
+		{
+			var unityModule = game.ModulesWow64Safe().FirstOrDefault(m => m.ModuleName == "UnityPlayer.dll");
+			if (unityModule == null) return false;
 
-			if (current.sceneCount <= 1) {
-				vars.Stopwatch.Restart();
-				return false;
+			sceneManager = new SignatureScanner(game, unityModule.BaseAddress, unityModule.ModuleMemorySize).Scan(
+				new SigScanTarget(11, "41 83 3E 01 4C 8D 45")
+				{ OnFound = (p, _, ptr) => p.Is64Bit() ? ptr + 0x4 + p.ReadValue<int>(ptr) : p.ReadPointer(ptr) });
+
+			return sceneManager != IntPtr.Zero;
+		};
+
+		Func<bool> getMainImage = () =>
+		{
+			var monoModule = game.ModulesWow64Safe().FirstOrDefault(m => m.ModuleName == vars.Script["Module"]);
+			if (monoModule == null) return false;
+
+			var loaded_images = new SignatureScanner(game, monoModule.BaseAddress, monoModule.ModuleMemorySize).Scan(
+				new SigScanTarget(int.Parse(vars.Script["SigOffset"]), vars.Script["SigPattern"])
+				{ OnFound = (p, _, ptr) => p.Is64Bit() ? ptr + 0x4 + p.ReadValue<int>(ptr) : p.ReadPointer(ptr) });
+			if (loaded_images == IntPtr.Zero) return false;
+
+			var table_size = ri(rp(loaded_images) + vars.Engine["GHashTable"]["table_size"]);
+			var table = rp(rp(loaded_images) + vars.Engine["GHashTable"]["table"]);
+			for (var i = 0; i < table_size; ++i)
+			{
+				if (rs(rp(rp(table + ptrSize * i) + vars.Engine["Slot"]["key"]), 32) != mainImage) continue;
+				image = rp(rp(table + ptrSize * i) + vars.Engine["Slot"]["value"]);
+				return true;
 			}
 
 			return false;
+		};
+
+		Action<IntPtr, string> getFields = (klass, class_name) =>
+		{
+			vars.Log(string.Format("Found {0} at 0x{1}.", class_name, klass.ToString("X")));
+
+			var field_count = ri(klass + vars.Engine["MonoClass"]["field_count"]);
+			var fields = rp(klass + vars.Engine["MonoClass"]["fields"]);
+			for (var i = 0; i < field_count; ++i)
+			{
+				var field = fields + vars.Engine["MonoClassField"]["size"] * i;
+				var attrs = rus(rp(field + vars.Engine["MonoClassField"]["type"]) + vars.Engine["MonoType"]["attrs"]);
+				if ((attrs & vars.Engine["MonoType"]["const_attr"]) != 0) continue;
+
+				var isStatic = (attrs & vars.Engine["MonoType"]["static_attr"]) != 0;
+				var offset = ri(field + vars.Engine["MonoClassField"]["offset"]);
+				var field_name = ((string)rs(rp(field + vars.Engine["MonoClassField"]["name"]), 64)).Split('<', '>').FirstOrDefault(s => !string.IsNullOrEmpty(s));
+
+				mono[class_name][field_name] = offset;
+				vars.Log(string.Format("    {0,-6} {1,-32} // 0x{2:X3}", isStatic ? "static" : "", field_name + ";", offset));
+			}
+		};
+
+		Func<bool> getClasses = () =>
+		{
+			mono.Clear();
+			var class_count = ri(image + vars.Engine["MonoImage"]["class_cache_size"]);
+			var class_cache = rp(image + vars.Engine["MonoImage"]["class_cache_table"]);
+
+			for (var i = 0; i < class_count; ++i)
+			{
+				for (var klass = rp(class_cache + ptrSize * i); klass != IntPtr.Zero; klass = rp(klass + vars.Engine["MonoClass"]["next"]))
+				{
+					var class_name = rs(rp(klass + vars.Engine["MonoClass"]["name"]), 64);
+					if (class_name == "" || !classes.ContainsKey(class_name)) continue;
+
+					var parent = klass;
+					for (var j = 0; j < classes[class_name]; ++j)
+						parent = rp(parent + vars.Engine["MonoClass"]["parent"]);
+
+					if (parent == IntPtr.Zero || rp(klass + vars.Engine["MonoClass"]["fields"]) == IntPtr.Zero) return false;
+
+					var vtable_size = ri(parent + vars.Engine["MonoClass"]["vtable_size"]);
+					var runtime_info = rp(rp(parent + vars.Engine["MonoClass"]["runtime_info"]) + vars.Engine["MonoClassRuntimeInfo"]["domain_vtables"]);
+					var data = rp(runtime_info + vars.Engine["MonoVTable"]["vtable"] + ptrSize * vtable_size);
+
+					mono[class_name] = new Dictionary<string, dynamic>();
+					mono[class_name]["static"] = data;
+					getFields(klass, class_name);
+
+					if (mono.Count == classes.Count) return true;
+				}
+			}
+
+			return false;
+		};
+		#endregion
+
+		while (!getSceneManager())
+		{
+			vars.Log("SceneManager not found.");
+			await System.Threading.Tasks.Task.Delay(1000, vars.CancelSource.Token);
 		}
-		vars.waitingOnCredit = Tuple.Create((string)null, -1, -1);
-		vars.Stopwatch.Stop();
+
+		while (!getMainImage())
+		{
+			vars.Log("Main image not found.");
+			await System.Threading.Tasks.Task.Delay(1000, vars.CancelSource.Token);
+		}
+
+		while (!getClasses())
+		{
+			vars.Log("Not all classes found.");
+			await System.Threading.Tasks.Task.Delay(5000, vars.CancelSource.Token);
+		}
+
+		/*******************************/
+		vars.Scenes = new MemoryWatcherList
+		{
+			new MemoryWatcher<int>(new DeepPointer(sceneManager, 0x18)) { Name = "sceneCount" }, // SceneManager.sceneCount
+			new MemoryWatcher<int>(new DeepPointer(sceneManager, 0x28, 0x0, 0x98)) { Name = "buildIndex" } // SceneManager.loadingScenes[0].buildIndex
+		};
+
+		var egd = mono["EverhoodGameData"];
+		var ld = mono["LocalData"];
+		vars.Data = new MemoryWatcherList
+		{
+			new MemoryWatcher<bool>(new DeepPointer(
+				egd["static"] + egd["instance"],
+				egd["data"],
+				ld["killModeState"])) { Name = "killModeState" },
+
+			new MemoryWatcher<int>(new DeepPointer(
+				egd["static"] + egd["instance"],
+				egd["data"],
+				ld["inventoryItems"], 0x18)) { Name = "itemCount" },
+
+			new MemoryWatcher<long>(new DeepPointer(
+				egd["static"] + egd["instance"],
+				egd["data"],
+				ld["inventoryItems"], 0x10)) { Name = "items" },
+		};
+
+		vars.TaskCompleted = true;
+		vars.Log("Mono task success.");
 	}
-
-	if (old.buildIndex != current.buildIndex) {
-		Tuple<string, int> levelToCheck;
-
-		//Before Arm Checks
-		if (vars.preArmChecks.TryGetValue(old.buildIndex, out levelToCheck)) {
-			var name = levelToCheck.Item1;
-			var index = levelToCheck.Item2;
-			if (settings[name] && index == current.buildIndex && !vars.preArmChecksDone.Contains(name)){
-				if (name == "Frog2") //Manual extra check so that pacifist splits don't split early.
-					vars.haveArm = true;
-
-				vars.preArmChecksDone.Add(name);
-				return true;
-			}
-		}
-
-		//After Arm Checks
-		if (vars.postArmChecks.TryGetValue(old.buildIndex, out levelToCheck)) {
-			var name = levelToCheck.Item1;
-			var index = levelToCheck.Item2;
-			if (settings[name] && index == current.buildIndex && !vars.postArmChecksDone.Contains(name)) {
-				vars.haveArm = true;
-				vars.postArmChecksDone.Add(name);
-				return true;
-			}
-		}
-
-		//Required Arm Checks
-		if (vars.haveArm && vars.requireArmChecks.TryGetValue(old.buildIndex, out levelToCheck)) {
-			var name = levelToCheck.Item1;
-			var index = levelToCheck.Item2;
-			if (settings[name] && index == current.buildIndex && !vars.postArmChecksDone.Contains(name)) {
-				vars.haveArm = true;
-				vars.postArmChecksDone.Add(name);
-				return true;
-			}
-		}
-
-		//Credits Checks
-		Tuple<string, int, int> creditCheck;
-		if (vars.creditChecks.TryGetValue(old.buildIndex, out creditCheck)) {
-			var name = creditCheck.Item1;
-			var index = creditCheck.Item2;
-			var time = creditCheck.Item3;
-			if (settings[name] && index == current.buildIndex && !vars.postArmChecksDone.Contains(name)) {
-				vars.waitingOnCredit = creditCheck;
-				return false;
-			}
-		}
-	}
-
-	return false;
+	catch (ArgumentException) { goto task_start; }
+	catch (Exception ex) { vars.Log("Mono task abort!\n" + ex); }});
 }
 
-reset {
-	if (old.buildIndex == 3 && current.buildIndex == 4 || old.buildIndex == 4 && current.buildIndex == 3) {
-		timer.Run.Offset = vars.originalOffset; //Try to make sure we don't completely destroy offsets.
+onStart
+{
+	// Reset storage variables.
+	vars.HasArm = false;
+	vars.Items.Clear();
+	vars.CompletedSplits.Clear();
+	vars.CreditsDelay.Reset();
+}
+
+onReset
+{
+	// Reset the timer offset.
+	timer.Run.Offset = vars.OriginalOffset;
+}
+
+update
+{
+	if (!vars.TaskCompleted) return false;
+
+	vars.Scenes.UpdateAll(game);
+	vars.Data.UpdateAll(game);
+
+	// Just to make usage of the variables a bit easier.
+	current.SceneCount = vars.Scenes["sceneCount"].Current;
+	current.BuildIndex = vars.Scenes["buildIndex"].Current;
+	current.ItemCount = vars.Data["itemCount"].Current;
+}
+
+start
+{
+	// Return early if the condition `old.BuildIndex == 3 && current.BuildIndex == 4` is false.
+	if (old.BuildIndex != 3 || current.BuildIndex != 4) return;
+
+	// The user may change their offset between runs. Save their old offset to set it back
+	// after they reset.
+	vars.OriginalOffset = timer.Run.Offset;
+	timer.Run.Offset = TimeSpan.FromSeconds(10);
+	return true;
+}
+
+split
+{
+	#region Item Splits
+	// Check whether the player collected an item.
+	if (old.ItemCount < current.ItemCount)
+	{
+		// I'm not sure if the game can give the user more than 1 item at once
+		// or if the game could insert an item in a spot that isn't the list end.
+		// To make sure, we just loop over the items list again.
+		for (int i = 0; i < current.ItemCount; ++i)
+		{
+			// Get the address of the `_items` field of the list, add an offset to the ith item.
+			var addr = vars.Data["items"].Current + 0x20 + 0x8 * i;
+
+			// Get the item's name.
+			var item = new DeepPointer((IntPtr)(addr), 0x14).DerefString(game, 32);
+
+			// Return early if the item has already been collected once.
+			if (vars.Items.Contains(item)) continue;
+
+			vars.Items.Add(item);
+
+			// If the item is The Arm, set a variable to represent that.
+			if (item == "The Arm")
+				vars.HasArm = true;
+
+			// Split if the setting is enabled. This check needs to be in an if block,
+			// otherwise the block will return early and skip any other potential items.
+			var split = "item-" + item;
+			vars.Log("New item: '" + split + "'.");
+			if (settings[split]) return true;
+		}
+	}
+	#endregion
+
+	#region Scene Splits
+	// Check whether the scene changed.
+	if (old.BuildIndex != current.BuildIndex)
+	{
+		// If the credits check includes the old scene, set the vars.CreditsDelay variables.
+		if (vars.CreditsChecks.TryGetValue(old.buildIndex, out check))
+		{
+			vars.CreditsDelay.Name = check[0];
+			vars.CreditsDelay.Index = check[1];
+			vars.CreditsDelay.Time = check[2];
+		}
+
+		// Split when the setting is enabled.
+		var split = string.Format("{0:000}-{1:000}-{2}", old.BuildIndex, current.BuildIndex, vars.HasArm ? "post" : "pre");
+		vars.Log("Scene change: '" + split + "'.");
+		return settings[split];
+	}
+	#endregion
+
+	#region Credits Splits
+	// Return early if no credits delay is set.
+	if (vars.CreditsDelay.Name == null) return;
+
+	// Reset and return early if the current scene index is not the credits delay scene index.
+	if (current.BuildIndex != vars.CreditsDelay.Index)
+	{
+		vars.CreditsDelay.Reset();
+		return;
+	}
+
+	// Check whether the delay is running.
+	if (vars.Stopwatch.IsRunning)
+	{
+		// Return early when the delay has not reached the target time.
+		if (vars.Stopwatch.Elapsed.TotalMilliseconds < vars.CreditsDelay.Time) return;
+
+		// Split when the delay has reached the target time.
+		vars.CreditsDelay.Reset();
+		vars.CompletedSplits.Add(vars.CreditsDelay.Name);
 		return true;
 	}
 
-	return false;
+	// Restart the delay when loading finishes to check again if the scene index is correct.
+	if (current.SceneCount <= 1)
+		vars.Stopwatch.Restart();
+	#endregion
 }
 
-shutdown {
-	timer.Run.Offset = vars.originalOffset; //Try to make sure we don't completely destroy offsets.
+reset
+{
+	return old.BuildIndex == 3 && current.BuildIndex == 4 ||
+	       old.BuildIndex == 4 && current.BuildIndex == 3;
 }
 
-isLoading {
-	//If sceneCount > 1 then Unity is loading another screen and Everhood only ever loads using this method.
-	return current.sceneCount > 1;
+isLoading
+{
+	// Unity is loading when the scene count is greater than 1 (to ensure smooth transitioning).
+	return current.SceneCount > 1;
+}
+
+exit
+{
+	// Cancel the task when it is still running.
+	vars.CancelSource.Cancel();
+}
+
+shutdown
+{
+	// Reset the timer offset and cancel the task when it is still running.
+	timer.Run.Offset = vars.OriginalOffset;
+	vars.CancelSource.Cancel();
 }
