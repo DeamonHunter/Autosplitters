@@ -47,7 +47,7 @@ startup
 				{ "TheEnd", "087-057-pre", true, "Defeat Rob Armless." },
 				{ "TheEnd", "074-057-pre", true, "Defeat Purple Mage Armless." },
 				{ "TheEnd", "027-083-pre", true, "Defeat Gold Pig Armless." },
-				{ "TheEnd", "021-056-pre", true, "Complete the Arm Tutorial." },
+				{ "TheEnd", "021-056-post", true, "Complete the Arm Tutorial." },
 
 		{ null, "Post-Arm", true, "Post-Arm" },
 			{ "Post-Arm", "Pacifist", true, "Pacifist Ending" },
@@ -90,12 +90,14 @@ startup
 
 		{ null, "Extras", true, "(All Fights) The Extra fights" },
 			{ "Extras", "065-009-post", true, "Kill ATM." },
-			{ "Extras", "040-039-post", true, "Complete the Maze and win a Cake." },
-			{ "Extras", "038-037-post", true, "Complete Super Racket." },
+			{ "Extras", "040-039-pre", true, "Complete the Maze and win a Cake. (Pre-Arm)" },
+			{ "Extras", "040-039-post", true, "Complete the Maze and win a Cake. (Post-Arm)" },
+			{ "Extras", "038-037-pre", true, "Complete Super Racket. (Pre-Arm)" },
+			{ "Extras", "038-037-post", true, "Complete Super Racket. (Post-Arm)" },
 			{ "Extras", "033-055-post", true, "Defeat the Lightning Man." },
 			{ "Extras", "072-058-post", true, "Defeat Brown Slim Mushroom." },
 			{ "Extras", "116-115-post", true, "Defeat Jump Rope." },
-			{ "Extras", "013-111-post", true, "Kill Cat God." },
+			{ "Extras", "013-111-post", true, "Defeat Cat God." },
 			{ "Extras", "013-112-post", true, "Survive Cat God." },
 			{ "Extras", "032-026-post", true, "Complete Super Racket 2." },
 			{ "Extras", "114-045-post", true, "Defeat Dev Gnomes." }
@@ -366,7 +368,7 @@ split
 			vars.Items.Add(item);
 
 			// If the item is The Arm, set a variable to represent that.
-			if (item == "The Arm")
+			if (item == "The Arm" || item == "Arm")
 				vars.HasArm = true;
 
 			// Split if the setting is enabled. This check needs to be in an if block,
@@ -383,7 +385,8 @@ split
 	if (old.BuildIndex != current.BuildIndex)
 	{
 		// If the credits check includes the old scene, set the vars.CreditsDelay variables.
-		if (vars.CreditsChecks.TryGetValue(old.buildIndex, out check))
+		dynamic[] check;
+		if (vars.CreditsChecks.TryGetValue(old.BuildIndex, out check))
 		{
 			vars.CreditsDelay.Name = check[0];
 			vars.CreditsDelay.Index = check[1];
