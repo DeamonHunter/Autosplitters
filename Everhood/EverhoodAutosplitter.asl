@@ -88,6 +88,12 @@ startup
 				{ "Genocide", "093-008-post",   false, "Defeat Buddah." },
 				{ "Genocide", "GenocideCredits", true, "Get Genocide Credits." },
 
+		{null, "Items", false, "(Items) Item pickup"},
+			{ "Items", "item-Arm", false, "Pickup the Arm." },
+			{ "Items", "item-CrystalKey", false, "Pickup the Crystal Key. (Maze Key)" },
+			{ "Items", "item-Batteries", false, "Pickup the Battery." },
+			{ "Items", "item-GoldenKey", false, "Pickup the Golden Key. (Key to Lightning Man)" },
+
 		{ null, "Extras", true, "(All Fights) The Extra fights" },
 			{ "Extras", "065-009-post", true, "Kill ATM." },
 			{ "Extras", "040-039-pre", true, "Complete the Maze and win a Cake. (Pre-Arm)" },
@@ -129,180 +135,61 @@ startup
 	};
 	#endregion
 
-	#region XML Parsing
-	var MONO_VER = "mono_v2_x64";
-	var xml = System.Xml.Linq.XDocument.Parse(File.ReadAllText(@"Components\" + MONO_VER + ".xml")).Element("mono");
-	vars.Script = xml.Element("script").Elements().ToDictionary(e => e.Name, e => e.Value);
-	vars.Engine = xml.Element("engine").Elements().ToDictionary(e => e.Name, e => e.Elements().ToDictionary(_e => _e.Name, _e => Convert.ToInt32(_e.Value, 16)));
+	#region Mono Class compiling
+	using (var prov = new Microsoft.CSharp.CSharpCodeProvider())
+	{
+		var param = new System.CodeDom.Compiler.CompilerParameters
+		{
+			GenerateInMemory = true,
+			ReferencedAssemblies = { "LiveSplit.Core.dll", "System.dll", "System.Core.dll", "System.Xml.dll", "System.Xml.Linq.dll" }
+		};
+
+		string mono = File.ReadAllText(@"Components\mono.cs"), helpers = File.ReadAllText(@"Components\mono_helpers.cs");
+		var asm = prov.CompileAssemblyFromSource(param, mono, helpers);
+		vars.Unity = Activator.CreateInstance(asm.CompiledAssembly.GetType("Unity.Game"));
+	}
 	#endregion
 }
 
 init
 {
-	#region User Data
-	var mainImage = "Assembly-CSharp";
-	var classes = new Dictionary<string, int>
+	vars.Unity.OnLoad = (Action<dynamic>)(helper =>
 	{
-		{ "EverhoodGameData", 0 },
-			{ "LocalData", 0 }
+		var gameData = helper.GetClass("Assembly-CSharp", "EverhoodGameData");
+		var localData = helper.GetClass("Assembly-CSharp", "LocalData");
+
+		vars.Unity.Make<long>(gameData.Static, gameData["instance"], gameData["data"], localData["inventoryItems"], 0x10).Name = "items";
+		vars.Unity.Make<int>(gameData.Static, gameData["instance"], gameData["data"], localData["inventoryItems"], 0x18).Name = "itemCount";
+	});
+
+	var sceneManager = IntPtr.Zero;
+	Func<bool> getSceneManager = () =>
+	{
+		var unityModule = game.ModulesWow64Safe().FirstOrDefault(m => m.ModuleName == "UnityPlayer.dll");
+		if (unityModule == null) return false;
+
+		sceneManager = new SignatureScanner(game, unityModule.BaseAddress, unityModule.ModuleMemorySize).Scan(
+			new SigScanTarget(11, "41 83 3E 01 4C 8D 45")
+			{ OnFound = (p, _, ptr) => p.Is64Bit() ? ptr + 0x4 + p.ReadValue<int>(ptr) : p.ReadPointer(ptr) });
+
+		return sceneManager != IntPtr.Zero;
 	};
-	#endregion
 
-	vars.TaskCompleted = false;
-	vars.CancelSource = new CancellationTokenSource();
-	System.Threading.Tasks.Task.Run(async () =>
-	{ task_start: try {
-		var ptrSize = game.Is64Bit() ? 0x8 : 0x4;
-		var image = IntPtr.Zero;
-		var mono = new Dictionary<string, dynamic>();
-		var sceneManager = IntPtr.Zero;
-
-		#region Functions
-		Func<IntPtr, IntPtr> rp = ptr => game.ReadPointer(ptr);
-		Func<IntPtr, int> ri = ptr => game.ReadValue<int>(ptr);
-		Func<IntPtr, ushort> rus = ptr => game.ReadValue<ushort>(ptr);
-		Func<IntPtr, int, string> rs = (ptr, length) => game.ReadString(ptr, length, "");
-
-		Func<bool> getSceneManager = () =>
-		{
-			var unityModule = game.ModulesWow64Safe().FirstOrDefault(m => m.ModuleName == "UnityPlayer.dll");
-			if (unityModule == null) return false;
-
-			sceneManager = new SignatureScanner(game, unityModule.BaseAddress, unityModule.ModuleMemorySize).Scan(
-				new SigScanTarget(11, "41 83 3E 01 4C 8D 45")
-				{ OnFound = (p, _, ptr) => p.Is64Bit() ? ptr + 0x4 + p.ReadValue<int>(ptr) : p.ReadPointer(ptr) });
-
-			return sceneManager != IntPtr.Zero;
-		};
-
-		Func<bool> getMainImage = () =>
-		{
-			var monoModule = game.ModulesWow64Safe().FirstOrDefault(m => m.ModuleName == vars.Script["Module"]);
-			if (monoModule == null) return false;
-
-			var loaded_images = new SignatureScanner(game, monoModule.BaseAddress, monoModule.ModuleMemorySize).Scan(
-				new SigScanTarget(int.Parse(vars.Script["SigOffset"]), vars.Script["SigPattern"])
-				{ OnFound = (p, _, ptr) => p.Is64Bit() ? ptr + 0x4 + p.ReadValue<int>(ptr) : p.ReadPointer(ptr) });
-			if (loaded_images == IntPtr.Zero) return false;
-
-			var table_size = ri(rp(loaded_images) + vars.Engine["GHashTable"]["table_size"]);
-			var table = rp(rp(loaded_images) + vars.Engine["GHashTable"]["table"]);
-			for (var i = 0; i < table_size; ++i)
-			{
-				if (rs(rp(rp(table + ptrSize * i) + vars.Engine["Slot"]["key"]), 32) != mainImage) continue;
-				image = rp(rp(table + ptrSize * i) + vars.Engine["Slot"]["value"]);
-				return true;
-			}
-
-			return false;
-		};
-
-		Action<IntPtr, string> getFields = (klass, class_name) =>
-		{
-			vars.Log(string.Format("Found {0} at 0x{1}.", class_name, klass.ToString("X")));
-
-			var field_count = ri(klass + vars.Engine["MonoClass"]["field_count"]);
-			var fields = rp(klass + vars.Engine["MonoClass"]["fields"]);
-			for (var i = 0; i < field_count; ++i)
-			{
-				var field = fields + vars.Engine["MonoClassField"]["size"] * i;
-				var attrs = rus(rp(field + vars.Engine["MonoClassField"]["type"]) + vars.Engine["MonoType"]["attrs"]);
-				if ((attrs & vars.Engine["MonoType"]["const_attr"]) != 0) continue;
-
-				var isStatic = (attrs & vars.Engine["MonoType"]["static_attr"]) != 0;
-				var offset = ri(field + vars.Engine["MonoClassField"]["offset"]);
-				var field_name = ((string)rs(rp(field + vars.Engine["MonoClassField"]["name"]), 64)).Split('<', '>').FirstOrDefault(s => !string.IsNullOrEmpty(s));
-
-				mono[class_name][field_name] = offset;
-				vars.Log(string.Format("    {0,-6} {1,-32} // 0x{2:X3}", isStatic ? "static" : "", field_name + ";", offset));
-			}
-		};
-
-		Func<bool> getClasses = () =>
-		{
-			mono.Clear();
-			var class_count = ri(image + vars.Engine["MonoImage"]["class_cache_size"]);
-			var class_cache = rp(image + vars.Engine["MonoImage"]["class_cache_table"]);
-
-			for (var i = 0; i < class_count; ++i)
-			{
-				for (var klass = rp(class_cache + ptrSize * i); klass != IntPtr.Zero; klass = rp(klass + vars.Engine["MonoClass"]["next"]))
-				{
-					var class_name = rs(rp(klass + vars.Engine["MonoClass"]["name"]), 64);
-					if (class_name == "" || !classes.ContainsKey(class_name)) continue;
-
-					var parent = klass;
-					for (var j = 0; j < classes[class_name]; ++j)
-						parent = rp(parent + vars.Engine["MonoClass"]["parent"]);
-
-					if (parent == IntPtr.Zero || rp(klass + vars.Engine["MonoClass"]["fields"]) == IntPtr.Zero) return false;
-
-					var vtable_size = ri(parent + vars.Engine["MonoClass"]["vtable_size"]);
-					var runtime_info = rp(rp(parent + vars.Engine["MonoClass"]["runtime_info"]) + vars.Engine["MonoClassRuntimeInfo"]["domain_vtables"]);
-					var data = rp(runtime_info + vars.Engine["MonoVTable"]["vtable"] + ptrSize * vtable_size);
-
-					mono[class_name] = new Dictionary<string, dynamic>();
-					mono[class_name]["static"] = data;
-					getFields(klass, class_name);
-
-					if (mono.Count == classes.Count) return true;
-				}
-			}
-
-			return false;
-		};
-		#endregion
-
+	System.Threading.Tasks.Task.Run( async () => {
 		while (!getSceneManager())
 		{
 			vars.Log("SceneManager not found.");
 			await System.Threading.Tasks.Task.Delay(1000, vars.CancelSource.Token);
 		}
 
-		while (!getMainImage())
-		{
-			vars.Log("Main image not found.");
-			await System.Threading.Tasks.Task.Delay(1000, vars.CancelSource.Token);
-		}
-
-		while (!getClasses())
-		{
-			vars.Log("Not all classes found.");
-			await System.Threading.Tasks.Task.Delay(5000, vars.CancelSource.Token);
-		}
-
-		/*******************************/
 		vars.Scenes = new MemoryWatcherList
 		{
 			new MemoryWatcher<int>(new DeepPointer(sceneManager, 0x18)) { Name = "sceneCount" }, // SceneManager.sceneCount
 			new MemoryWatcher<int>(new DeepPointer(sceneManager, 0x28, 0x0, 0x98)) { Name = "buildIndex" } // SceneManager.loadingScenes[0].buildIndex
 		};
 
-		var egd = mono["EverhoodGameData"];
-		var ld = mono["LocalData"];
-		vars.Data = new MemoryWatcherList
-		{
-			new MemoryWatcher<bool>(new DeepPointer(
-				egd["static"] + egd["instance"],
-				egd["data"],
-				ld["killModeState"])) { Name = "killModeState" },
-
-			new MemoryWatcher<int>(new DeepPointer(
-				egd["static"] + egd["instance"],
-				egd["data"],
-				ld["inventoryItems"], 0x18)) { Name = "itemCount" },
-
-			new MemoryWatcher<long>(new DeepPointer(
-				egd["static"] + egd["instance"],
-				egd["data"],
-				ld["inventoryItems"], 0x10)) { Name = "items" },
-		};
-
-		vars.TaskCompleted = true;
-		vars.Log("Mono task success.");
-	}
-	catch (ArgumentException) { goto task_start; }
-	catch (Exception ex) { vars.Log("Mono task abort!\n" + ex); }});
+		vars.Unity.Load(game);
+	});
 }
 
 onStart
@@ -322,15 +209,15 @@ onReset
 
 update
 {
-	if (!vars.TaskCompleted) return false;
+	if (!vars.Unity.Loaded) return false;
 
 	vars.Scenes.UpdateAll(game);
-	vars.Data.UpdateAll(game);
+	vars.Unity.Watchers.UpdateAll(game);
 
 	// Just to make usage of the variables a bit easier.
 	current.SceneCount = vars.Scenes["sceneCount"].Current;
 	current.BuildIndex = vars.Scenes["buildIndex"].Current;
-	current.ItemCount = vars.Data["itemCount"].Current;
+	current.ItemCount = vars.Unity.Watchers["itemCount"].Current;
 }
 
 start
@@ -357,7 +244,7 @@ split
 		for (int i = 0; i < current.ItemCount; ++i)
 		{
 			// Get the address of the `_items` field of the list, add an offset to the ith item.
-			var addr = vars.Data["items"].Current + 0x20 + 0x8 * i;
+			var addr = vars.Unity.Watchers["items"].Current + 0x20 + 0x8 * i;
 
 			// Get the item's name.
 			var item = new DeepPointer((IntPtr)(addr), 0x14).DerefString(game, 32);
@@ -368,7 +255,7 @@ split
 			vars.Items.Add(item);
 
 			// If the item is The Arm, set a variable to represent that.
-			if (item == "The Arm" || item == "Arm")
+			if (item == "Arm")
 				vars.HasArm = true;
 
 			// Split if the setting is enabled. This check needs to be in an if block,
@@ -401,10 +288,12 @@ split
 	#endregion
 
 	#region Credits Splits
+	//NOTE: Credits showing delay is actually frame based and not timer based. This may appear off if the user is not reaching 60fps on the credits.
+
 	// Return early if no credits delay is set.
 	if (vars.CreditsDelay.Name == null) return;
 
-	// Reset and return early if the current scene index is not the credits delay scene index.
+	// Reset and return early if the current scene index is not the known credits scene index.
 	if (current.BuildIndex != vars.CreditsDelay.Index)
 	{
 		vars.CreditsDelay.Reset();
@@ -444,12 +333,12 @@ isLoading
 exit
 {
 	// Cancel the task when it is still running.
-	vars.CancelSource.Cancel();
+	vars.Unity.Reset();
 }
 
 shutdown
 {
 	// Reset the timer offset and cancel the task when it is still running.
 	timer.Run.Offset = vars.OriginalOffset;
-	vars.CancelSource.Cancel();
+	vars.Unity.Reset();
 }
