@@ -6,6 +6,7 @@ startup
 	vars.OriginalOffset = timer.Run.Offset;
 	vars.CompletedSplits = new HashSet<string>();
 	vars.Items = new HashSet<string>();
+	vars.Battles = new HashSet<string>();
 
 	#region Settings
 	dynamic[,] sett =
@@ -15,7 +16,7 @@ startup
 				{ "Tutorial", "064-007-pre", true, "Defeat Frog Armless." },
 				{ "Tutorial", "065-009-pre", true, "Defeat ATM Armless." },
 				{ "Tutorial", "066-010-pre", true, "Defeat Zigg Armless." },
-				{ "Tutorial", "015-012-pre", true, "Defeat Incinerator 2." },
+				{ "Tutorial", "battle-IncineratorGnome-015", true, "Defeat Incinerator 2." },
 				{ "Tutorial", "019-017-pre", true, "Complete Post Mortem." },
 				{ "Tutorial", "020-016-pre", true, "Complete Gnomes." },
 
@@ -25,8 +26,8 @@ startup
 				{ "Circus+Forest", "058-063-pre", false, "Get dragged into the Lab." },
 				{ "Circus+Forest", "048-063-pre",  true, "Defeat Grundall Armless." },
 				{ "Circus+Forest", "073-063-pre", false, "Defeat Masterpiece." },
-				// Todo: Make it a check for defeating Orange. (Note: Defeating Orange has no level transition)
-				{ "Circus+Forest", "063-058-pre",  true, "Leave the Lab." },
+				{ "Circus+Forest", "battle-CyborgBattle-063",  true, "Defeat Professor Orange." },
+				{ "Circus+Forest", "063-058-pre",  false, "Leave the Lab." },
 
 			{ "Pre-Arm", "DND", true, "DND" },
 				{ "DND", "046-104-pre", false, "Start DND." },
@@ -160,6 +161,9 @@ init
 
 		vars.Unity.Make<long>(gameData.Static, gameData["instance"], gameData["data"], localData["inventoryItems"], 0x10).Name = "items";
 		vars.Unity.Make<int>(gameData.Static, gameData["instance"], gameData["data"], localData["inventoryItems"], 0x18).Name = "itemCount";
+
+		vars.Unity.Make<long>(gameData.Static, gameData["instance"], gameData["data"], localData["battleState"], 0x18).Name = "battleState";
+		vars.Unity.Make<int>(gameData.Static, gameData["instance"], gameData["data"], localData["battleState"], 0x40).Name = "battleStateCount";
 	});
 
 	var sceneManager = IntPtr.Zero;
@@ -197,6 +201,7 @@ onStart
 	// Reset storage variables.
 	vars.HasArm = false;
 	vars.Items.Clear();
+	vars.Battles.Clear();
 	vars.CompletedSplits.Clear();
 	vars.CreditsDelay.Reset();
 }
@@ -218,6 +223,7 @@ update
 	current.SceneCount = vars.Scenes["sceneCount"].Current;
 	current.BuildIndex = vars.Scenes["buildIndex"].Current;
 	current.ItemCount = vars.Unity.Watchers["itemCount"].Current;
+	current.BattleStateCount = vars.Unity.Watchers["battleStateCount"].Current;
 }
 
 start
@@ -262,6 +268,43 @@ split
 			// otherwise the block will return early and skip any other potential items.
 			var split = "item-" + item;
 			vars.Log("New item: '" + split + "'.");
+			if (settings[split]) return true;
+		}
+	}
+	#endregion
+
+	#region Battle State
+
+	if (old.BattleStateCount < current.BattleStateCount) {
+		//Unlike items, this is a a dictionary<string,bool>. Which when new values are added, are always added to the end.
+		//Everhood also doesn't initialise values in the dictionary to false. So we basically only need to check new entries and not the old ones.
+		for (int i = old.BattleStateCount; i < current.BattleStateCount; ++i)
+		{
+			vars.Log(string.Format("Checking Battle State {0}", i));
+
+			// Get the address of the `_items` field of the list, add an offset to the ith item.
+
+			//Dictionary array starts at 0x20. Entry size is 0x18. Key is 0x8 and Value is 0x10.
+			var keyAddr = vars.Unity.Watchers["battleState"].Current + 0x28 + 0x18 * i;
+			var valueAddr = vars.Unity.Watchers["battleState"].Current + 0x30 + 0x18 * i;
+
+			// Get the item's name.
+			var key = new DeepPointer((IntPtr)(keyAddr), 0x14).DerefString(game, 32);
+			var value = game.ReadValue<bool>((IntPtr)valueAddr);
+
+			vars.Log(string.Format("Battle {0} was {1}.", key, value));
+			if (!value)
+				continue;
+
+			// Return early if the item has already been collected once.
+			if (vars.Battles.Contains(key)) continue;
+
+			vars.Battles.Add(key);
+
+			// Split if the setting is enabled. This check needs to be in an if block,
+			// otherwise the block will return early and skip any other potential items.
+			var split = "battle-" + key + "-" + current.BuildIndex;
+			vars.Log("New battle: '" + split + "'.");
 			if (settings[split]) return true;
 		}
 	}
