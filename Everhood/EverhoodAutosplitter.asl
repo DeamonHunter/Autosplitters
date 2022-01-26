@@ -282,9 +282,7 @@ split
 		{
 			vars.Log(string.Format("Checking Battle State {0}", i));
 
-			// Get the address of the `_items` field of the list, add an offset to the ith item.
-
-			//Dictionary array starts at 0x20. Entry size is 0x18. Key is 0x8 and Value is 0x10.
+			// Get the address of the `_items` field of the dictionary, add an offset to the ith item.
 			var keyAddr = vars.Unity.Watchers["battleState"].Current + 0x28 + 0x18 * i;
 			var valueAddr = vars.Unity.Watchers["battleState"].Current + 0x30 + 0x18 * i;
 
@@ -303,7 +301,7 @@ split
 
 			// Split if the setting is enabled. This check needs to be in an if block,
 			// otherwise the block will return early and skip any other potential items.
-			var split = "battle-" + key + "-" + current.BuildIndex;
+			var split = string.Format("battle-{0}-{1:000}", key, current.BuildIndex);
 			vars.Log("New battle: '" + split + "'.");
 			if (settings[split]) return true;
 		}
