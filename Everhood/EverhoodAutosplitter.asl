@@ -154,7 +154,7 @@ startup
 
 init
 {
-	vars.Unity.OnLoad = (Action<dynamic>)(helper =>
+	vars.Unity.TryOnLoad = (Func<dynamic, bool>)(helper =>
 	{
 		var gameData = helper.GetClass("Assembly-CSharp", "EverhoodGameData");
 		var localData = helper.GetClass("Assembly-CSharp", "LocalData");
@@ -164,6 +164,8 @@ init
 
 		vars.Unity.Make<long>(gameData.Static, gameData["instance"], gameData["data"], localData["battleState"], 0x18).Name = "battleState";
 		vars.Unity.Make<int>(gameData.Static, gameData["instance"], gameData["data"], localData["battleState"], 0x40).Name = "battleStateCount";
+
+		return true;
 	});
 
 	var sceneManager = IntPtr.Zero;
