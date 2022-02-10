@@ -136,7 +136,7 @@ startup
 	};
 	#endregion
 
-	vars.Unity = Assembly.Load(File.ReadAllBytes(@"Components\ULibrary.dll")).CreateInstance("ULibrary.Unity");
+	vars.Unity = Assembly.Load(File.ReadAllBytes(@"Components\ULibrary")).CreateInstance("ULibrary.Unity");
 }
 
 init
