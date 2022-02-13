@@ -3,7 +3,7 @@ state("Everhood") {}
 startup
 {
 	vars.Log = (Action<object>)(output => print("[Everhood] " + output));
-	vars.OriginalOffset = timer.Run.Offset;
+	vars.OriginalOffset = TimeSpan.MinValue;
 	vars.CompletedSplits = new HashSet<string>();
 	vars.Items = new HashSet<string>();
 	vars.Battles = new HashSet<string>();
@@ -193,12 +193,12 @@ onStart
 	vars.Battles.Clear();
 	vars.CompletedSplits.Clear();
 	vars.CreditsDelay.Reset();
-}
 
-onReset
-{
-	// Reset the timer offset.
-	timer.Run.Offset = vars.OriginalOffset;
+	//Reset the run offset value if we know
+	if (vars.OriginalOffset != TimeSpan.MinValue) {
+		timer.Run.Offset = vars.OriginalOffset;
+		vars.OriginalOffset = TimeSpan.MinValue;
+	}
 }
 
 update
@@ -362,13 +362,12 @@ isLoading
 
 exit
 {
-	// Cancel the task when it is still running.
+	//Make sure we clean up unity when leaving.
 	vars.Unity.Reset();
 }
 
 shutdown
 {
-	// Reset the timer offset and cancel the task when it is still running.
-	timer.Run.Offset = vars.OriginalOffset;
+	//Make sure we clean up unity when leaving.
 	vars.Unity.Reset();
 }
