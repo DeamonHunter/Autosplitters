@@ -136,7 +136,8 @@ startup
 	};
 	#endregion
 
-	vars.Unity = Assembly.Load(File.ReadAllBytes(@"Components\ULibrary")).CreateInstance("ULibrary.Unity");
+	vars.Unity = Assembly.Load(File.ReadAllBytes(@"Components\ULibrary.bin")).CreateInstance("ULibrary.Unity");
+	vars.Unity.LoadSceneManager = true;
 }
 
 init
@@ -157,34 +158,7 @@ init
 		return true;
 	});
 
-	var sceneManager = IntPtr.Zero;
-	Func<bool> getSceneManager = () =>
-	{
-		var unityModule = game.ModulesWow64Safe().FirstOrDefault(m => m.ModuleName == "UnityPlayer.dll");
-		if (unityModule == null) return false;
-
-		sceneManager = new SignatureScanner(game, unityModule.BaseAddress, unityModule.ModuleMemorySize).Scan(
-			new SigScanTarget(11, "41 83 3E 01 4C 8D 45")
-			{ OnFound = (p, _, ptr) => p.Is64Bit() ? ptr + 0x4 + p.ReadValue<int>(ptr) : p.ReadPointer(ptr) });
-
-		return sceneManager != IntPtr.Zero;
-	};
-
-	System.Threading.Tasks.Task.Run( async () => {
-		while (!getSceneManager())
-		{
-			vars.Log("SceneManager not found.");
-			await System.Threading.Tasks.Task.Delay(1000, vars.CancelSource.Token);
-		}
-
-		vars.Scenes = new MemoryWatcherList
-		{
-			new MemoryWatcher<int>(new DeepPointer(sceneManager, 0x18)) { Name = "sceneCount" }, // SceneManager.sceneCount
-			new MemoryWatcher<int>(new DeepPointer(sceneManager, 0x28, 0x0, 0x98)) { Name = "buildIndex" } // SceneManager.loadingScenes[0].buildIndex
-		};
-
-		vars.Unity.Load(game);
-	});
+	vars.Unity.Load(game);
 }
 
 onStart
@@ -207,14 +181,13 @@ update
 {
 	if (!vars.Unity.Loaded) return false;
 
-	vars.Scenes.UpdateAll(game);
-	vars.Unity.Watchers.UpdateAll(game);
+	vars.Unity.UpdateAll(game);
 
 	// Just to make usage of the variables a bit easier.
-	current.SceneCount = vars.Scenes["sceneCount"].Current;
-	current.BuildIndex = vars.Scenes["buildIndex"].Current;
-	current.ItemCount = vars.Unity.Watchers["itemCount"].Current;
-	current.BattleStateCount = vars.Unity.Watchers["battleStateCount"].Current;
+	current.SceneCount = vars.Unity.Scenes.Count;
+	current.BuildIndex = vars.Unity.Scenes.Active.IsValid ? vars.Unity.Scenes.Active.Index : old.BuildIndex;
+	current.ItemCount = vars.Unity["itemCount"].Current;
+	current.BattleStateCount = vars.Unity["battleStateCount"].Current;
 }
 
 start
@@ -241,7 +214,7 @@ split
 		for (int i = 0; i < current.ItemCount; ++i)
 		{
 			// Get the address of the `_items` field of the list, add an offset to the ith item.
-			var addr = vars.Unity.Watchers["items"].Current + 0x20 + 0x8 * i;
+			var addr = vars.Unity["items"].Current + 0x20 + 0x8 * i;
 
 			// Get the item's name.
 			var item = new DeepPointer((IntPtr)(addr), 0x14).DerefString(game, 32);
@@ -274,8 +247,8 @@ split
 			vars.Log(string.Format("Checking Battle State {0}", i));
 
 			// Get the address of the `_items` field of the dictionary, add an offset to the ith item.
-			var keyAddr = vars.Unity.Watchers["battleState"].Current + 0x28 + 0x18 * i;
-			var valueAddr = vars.Unity.Watchers["battleState"].Current + 0x30 + 0x18 * i;
+			var keyAddr = vars.Unity["battleState"].Current + 0x28 + 0x18 * i;
+			var valueAddr = vars.Unity["battleState"].Current + 0x30 + 0x18 * i;
 
 			// Get the item's name.
 			var key = new DeepPointer((IntPtr)(keyAddr), 0x14).DerefString(game, 32);
@@ -352,8 +325,12 @@ split
 
 reset
 {
-	return old.BuildIndex == 3 && current.BuildIndex == 4 ||
-	       old.BuildIndex == 4 && current.BuildIndex == 3;
+	//Reset at the standard start. Should immediately trigger start{}
+	if (old.BuildIndex == 3 && current.BuildIndex == 4)
+		return true;
+
+	//If the player selects no at the start. Also reset.
+	return old.BuildIndex == 4 && (current.BuildIndex == 3 || current.BuildIndex == 0);
 }
 
 isLoading
