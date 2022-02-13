@@ -145,12 +145,14 @@ init
 	{
 		var gameData = helper.GetClass("Assembly-CSharp", "EverhoodGameData");
 		var localData = helper.GetClass("Assembly-CSharp", "LocalData");
+		var listData = helper.GetClass("mscorlib", "List`1");
+		var dictionaryData = helper.GetClass("mscorlib", "Dictionary`2");
 
-		vars.Unity.Make<long>(gameData.Static, gameData["instance"], gameData["data"], localData["inventoryItems"], 0x10).Name = "items";
-		vars.Unity.Make<int>(gameData.Static, gameData["instance"], gameData["data"], localData["inventoryItems"], 0x18).Name = "itemCount";
+		vars.Unity.Make<long>(gameData.Static, gameData["instance"], gameData["data"], localData["inventoryItems"], listData["_items"]).Name = "items";
+		vars.Unity.Make<int>(gameData.Static, gameData["instance"], gameData["data"], localData["inventoryItems"], listData["_size"]).Name = "itemCount";
 
-		vars.Unity.Make<long>(gameData.Static, gameData["instance"], gameData["data"], localData["battleState"], 0x18).Name = "battleState";
-		vars.Unity.Make<int>(gameData.Static, gameData["instance"], gameData["data"], localData["battleState"], 0x40).Name = "battleStateCount";
+		vars.Unity.Make<long>(gameData.Static, gameData["instance"], gameData["data"], localData["battleState"], dictionaryData["entries"]).Name = "battleState";
+		vars.Unity.Make<int>(gameData.Static, gameData["instance"], gameData["data"], localData["battleState"], dictionaryData["count"]).Name = "battleStateCount";
 
 		return true;
 	});
