@@ -136,7 +136,7 @@ startup
 	};
 	#endregion
 
-	vars.Unity = Assembly.Load(File.ReadAllBytes(@"Components\UnityASL.bin")).CreateInstance("ULibrary.Unity");
+	vars.Unity = Assembly.Load(File.ReadAllBytes(@"Components\UnityASL.bin")).CreateInstance("UnityASL.Unity");
 	vars.Unity.LoadSceneManager = true;
 }
 
