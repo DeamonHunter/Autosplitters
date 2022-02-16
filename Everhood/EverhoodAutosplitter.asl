@@ -89,7 +89,7 @@ startup
 				{ "Genocide", "093-008-post",   false, "Defeat Buddah." },
 				{ "Genocide", "GenocideCredits", true, "Get Genocide Credits." },
 
-		{null, "Items", false, "(Items) Item pickup"},
+		{ null, "Items", false, "(Items) Item pickup" },
 			{ "Items", "item-Arm", false, "Pickup the Arm." },
 			{ "Items", "item-CrystalKey", false, "Pickup the Crystal Key. (Maze Key)" },
 			{ "Items", "item-Batteries", false, "Pickup the Battery." },
@@ -136,7 +136,7 @@ startup
 	};
 	#endregion
 
-	vars.Unity = Assembly.Load(File.ReadAllBytes(@"Components\ULibrary.bin")).CreateInstance("ULibrary.Unity");
+	vars.Unity = Assembly.Load(File.ReadAllBytes(@"Components\UnityASL.bin")).CreateInstance("ULibrary.Unity");
 	vars.Unity.LoadSceneManager = true;
 }
 
